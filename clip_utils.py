@@ -158,7 +158,7 @@ def evaluate(predictions, labels, groups=[], label_names=None, num_augmentations
 
     cf_matrix = confusion_matrix(labels, predictions, labels=label_names)
     class_accuracy=100*cf_matrix.diagonal()/cf_matrix.sum(1)
-    accuracy = np.mean((labels == predictions).astype(np.float)) * 100.
+    accuracy = np.mean((labels == predictions).astype(float)) * 100.
     balanced_acc = class_accuracy.mean()
     if len(groups) == 0:
         return accuracy, balanced_acc, np.array([round(c,2) for c in class_accuracy])
@@ -168,7 +168,7 @@ def evaluate(predictions, labels, groups=[], label_names=None, num_augmentations
 
 def get_per_group_acc(value, predictions, labels, groups):
     indices = np.array(np.where(groups == value))
-    return np.mean((labels[indices] == predictions[indices]).astype(np.float)) * 100.
+    return np.mean((labels[indices] == predictions[indices]).astype(float)) * 100.
 
 def zeroshot_classifier(prompts, model, normalize=True, model_type='clip', cuda_device='0'):
     """ Computes CLIP text embeddings for a list of prompts. """
@@ -206,8 +206,8 @@ def get_nn_metrics(aug_set, aug_domains, aug_labels, sample_set, sample_domains,
     prop_unique = len(np.unique(neighbors))/len(neighbors)
     neighbor_samples = [(x,y) for x,y in zip(sample_idxs, neighbors[sample_idxs])]
     neighbor_domains, neighbor_labels = [sample_domains[i] for i in neighbors], [sample_labels[i] for i in neighbors]
-    domain_acc = np.mean((aug_domains == neighbor_domains).astype(np.float)) * 100.
-    class_acc = np.mean((aug_labels == neighbor_labels).astype(np.float)) * 100.
+    domain_acc = np.mean((aug_domains == neighbor_domains).astype(float)) * 100.
+    class_acc = np.mean((aug_labels == neighbor_labels).astype(float)) * 100.
     return neighbor_domains, neighbor_labels, domain_acc, class_acc, neighbor_samples, prop_unique, mean_cs
 
 

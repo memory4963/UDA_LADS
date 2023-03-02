@@ -16,7 +16,6 @@ import numpy as np
 from tqdm import tqdm
 from scipy.spatial import distance
 import pandas as pd
-from transformers import AdamW
 import omegaconf
 from omegaconf import OmegaConf
 
@@ -176,7 +175,7 @@ class ClipMLP(Base):
             print("----------- EVALUATING PREVIOUS CHECKPOINT -----------")
             self.load_checkpoint(self.cfg.METHOD.MODEL.CHECKPOINT)
     
-        self.optimizer = AdamW(self.net.parameters(), lr=self.cfg.METHOD.MODEL.LR, weight_decay=self.cfg.METHOD.MODEL.WEIGHT_DECAY)
+        self.optimizer = torch.optim.AdamW(self.net.parameters(), lr=self.cfg.METHOD.MODEL.LR, weight_decay=self.cfg.METHOD.MODEL.WEIGHT_DECAY)
         self.create_criterion() # get loss functions
 
         if not self.cfg.METHOD.MODEL.RESUME:

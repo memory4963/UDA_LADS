@@ -4,7 +4,7 @@ import numpy as np
 from pytorch_adapt.datasets import  domainnet
 from utils import get_counts
 
-with open(f'/shared/lisabdunlap/data/domainnet/clipart_test.txt') as f:
+with open(f'data/domainnet/clipart_test.txt') as f:
     test_classes = f.read().splitlines()
 
 class_dict = {}
@@ -50,7 +50,7 @@ class DomainNet:
 
 MINI_DOMAINS = ['clipart', 'painting', 'real', 'sketch'] 
 
-with open(f'/shared/lisabdunlap/data/domainnet_sentry_split/real_test_mini.txt') as f:
+with open(f'data/domainnet/sentry_split/real_test_mini.txt') as f:
     test_classes = f.read().splitlines()
 
 class_dict = {}

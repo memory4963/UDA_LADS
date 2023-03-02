@@ -27,7 +27,7 @@ dependencies:
     - cox
     - ftfy
     - regex
-    - tensorflow-gpu
+    - tensorflow
     - tensorflow_hub
     - statsmodels
     - clip

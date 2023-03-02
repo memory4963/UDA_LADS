@@ -119,9 +119,9 @@ def get_dataset(dataset_name, transform, val_transform=None, biased_val=True):
         testset = SVHN('./data', args, split='test', transform=val_transform, biased_val=biased_val)
     elif dataset_name == "DomainNet":
         cfg = get_config('DomainNet')
-        trainset = DomainNet('/shared/lisabdunlap/data', cfg, split='train', transform=transform)
-        valset = DomainNet('/shared/lisabdunlap/data', cfg, split='val', transform=val_transform)
-        testset = DomainNet('/shared/lisabdunlap/data', cfg, split='test', transform=val_transform)
+        trainset = DomainNet('data/domainnet', cfg, split='train', transform=transform)
+        valset = DomainNet('data/domainnet', cfg, split='val', transform=val_transform)
+        testset = DomainNet('data/domainnet', cfg, split='test', transform=val_transform)
     elif dataset_name == "DomainNetMini":
         trainset = OneDomain('/shared/lisabdunlap/data', domain='sketch', split='train', transform=transform)
         valset = OneDomain('/shared/lisabdunlap/data', domain='sketch', split='val', transform=val_transform)

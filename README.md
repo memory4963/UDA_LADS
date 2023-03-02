@@ -12,6 +12,16 @@ Official Implementation of [LADS (Latent Augmentation using Domain descriptionS)
     ```
     conda env create -f environment.yaml
     ```
+
+    - There are some library conflicts when installing tensorflow by `pip`, so LUO recommends to install `pip` dependencies one by one in the terminal.
+
+        ```
+        pip install tensorflow
+        pip install tensorflow_hub
+        ...
+        ```
+
+
 2. Launch your environment with `conda activate LADS` or `source activate LADS`
 
 3. Compute and store CLIP embeddings for each dataset (see below)
