@@ -765,6 +765,7 @@ class UDA_LADS(Augment):
         else:
             text_embs = zeroshot_classifier([[f"a photo of a {c}"] for c in self.class_names], self.model, model_type=self.cfg.EXP.IMAGE_FEATURES)
 
+        unseen_features = unseen_features.astype(np.float32)
         self.unseen_features = torch.from_numpy(unseen_features[None, :]).to(self.device)
         self.k = cfg.DATA.KNN_NUM
         self.beta = cfg.AUGMENTATION.BETA
