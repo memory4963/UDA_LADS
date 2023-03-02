@@ -735,6 +735,189 @@ class LADS(Augment):
         print(f"...loaded checkpoint with acc {checkpoint['acc']}")
         return net
 
+
+class UDA_LADS(Augment):
+    def __init__(self, cfg, image_features, labels, group_labels, domain_labels, filenames, text_features, val_image_features, val_labels, val_group_labels,val_domain_labels, val_filenames,
+                 unseen_features):
+        super().__init__(cfg, image_features, labels, group_labels, domain_labels, filenames, text_features)
+        source_embeddings, target_embeddings = get_domain_text_embs(self.model, cfg, self.neutral_prompts, self.prompts, self.class_names)
+        # target_embeddings is size (num_domains, num_classes, emb_size)
+        # source_embeddings is size (num_source_domain_descriptions, num_classes, emb_size)
+        source_embeddings /= source_embeddings.norm(dim=-1, keepdim=True)
+        target_embeddings /= target_embeddings.norm(dim=-1, keepdim=True)
+        self.source_embeddings = source_embeddings.cuda().float()
+        self.target_embeddings = target_embeddings.cuda().float()
+        dataset = EmbeddingDataset(self.cfg, self.image_features, self.labels, self.group_labels, self.domain_labels)
+        self.dataset = dataset
+        self.train_loader = torch.utils.data.DataLoader(dataset, batch_size=cfg.DATA.BATCH_SIZE, shuffle=True)
+
+        val_dataset = EmbeddingDataset(self.cfg, val_image_features, val_labels, val_group_labels, val_domain_labels)
+        self.val_dataset = val_dataset
+        self.val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=cfg.DATA.BATCH_SIZE, shuffle=True)
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.nets = []
+        self.net_checkpoints = []
+        self.uid = uuid.uuid4()
+        # create generic embeddings for class consistency loss
+        if self.cfg.DATA.DATASET == 'ColoredMNISTBinary':
+            text_embs = zeroshot_classifier([[f'a photo of the number "{c}"'] for c in self.class_names], self.model, model_type=self.cfg.EXP.IMAGE_FEATURES)
+        else:
+            text_embs = zeroshot_classifier([[f"a photo of a {c}"] for c in self.class_names], self.model, model_type=self.cfg.EXP.IMAGE_FEATURES)
+
+        self.unseen_features = torch.from_numpy(unseen_features[None, :]).to(self.device)
+        self.k = cfg.DATA.KNN_NUM
+        self.beta = cfg.AUGMENTATION.BETA
+        
+        self.class_text_embs = text_embs.float().cuda()
+        self.run() # train augmentation networks
+
+    def run(self):
+        for i in range(len(self.prompts)):
+            print(f"Training network for {self.prompts[i]}")
+            self.train_network(i)
+
+    @staticmethod
+    def get_class_logits(outputs, class_embs):
+        outputs_norm = outputs / outputs.norm(dim=-1, keepdim=True) 
+        return torch.matmul(outputs_norm, class_embs)
+
+    def train_network(self, num_net): 
+        net = MLP(hidden_dim=self.cfg.AUGMENTATION.MODEL.HIDDEN_DIM, input_dim=self.dataset.embedding_dim)
+        self.nets.append(net.cuda())
+        self.net_checkpoints.append("")
+
+        self.optimizer = AdamW(self.nets[num_net].parameters(), lr=self.cfg.AUGMENTATION.MODEL.LR, weight_decay=self.cfg.AUGMENTATION.MODEL.WEIGHT_DECAY)
+        self.directional_loss = DirectionLoss(self.cfg.AUGMENTATION.LOSS_TYPE)
+        self.class_consistency_loss = nn.CrossEntropyLoss(weight=self.dataset.class_weights.cuda())
+        # self.alignment_loss = DirectionLoss('mse')
+        self.alignment_loss = nn.MSELoss()
+
+        self.nets[num_net].train()
+        
+        best_train_loss, best_epoch = 10000, 0
+        # LUO: training the f_aug
+        for epoch in range(self.cfg.AUGMENTATION.EPOCHS):
+            train_metrics = self.training_loop(self.train_loader, num_net, epoch, phase='train')
+            val_metrics = self.training_loop(self.val_loader, num_net, epoch, phase='val')
+            if val_metrics['val loss'] < best_train_loss:
+                    best_train_loss = val_metrics['val loss']
+                    best_epoch = epoch
+                    self.net_checkpoints[num_net] = self.save_checkpoint(best_train_loss, epoch, num_net)
+
+        wandb.summary[f"{self.prompts[num_net]} best epoch"] = best_epoch
+        wandb.summary[f"{self.prompts[num_net]} best train_loss"] = best_train_loss
+        print(f"==> loading checkpoint {self.net_checkpoints[num_net]} at epoch {best_epoch} with loss {best_train_loss}")
+        self.nets[num_net] = self.load_checkpoint(self.nets[num_net], self.net_checkpoints[num_net])
+
+    def get_direction_vectors(self, img_embs, labels, num_net):
+        """
+        Returns the direction vectors for the image embeddings by taking the source
+        embedding that is most similar to each image embedding and subtracting if from the target.
+        """
+        dir_vectors = []
+        for (im, l) in zip(img_embs, labels):
+            prod = im @ self.source_embeddings[:,l,:].T
+            _, source_idx = torch.max(prod, dim=0)
+            diff = self.target_embeddings[num_net][l] - self.source_embeddings[source_idx][l]
+            if diff.norm() == 0:
+                print(diff)
+            dir_vectors.append(diff)
+        diffs = torch.stack(dir_vectors)
+        diffs /= diffs.norm(dim=-1, keepdim=True)
+        return diffs
+
+    def training_loop(self, loader, num_net, epoch, phase='train'):
+        if phase == 'train':
+            self.nets[num_net].train()
+        else:
+            self.nets[num_net].eval()
+        train_directional_loss, train_class_loss, train_align_loss, train_loss, total = 0, 0, 0, 0, 0
+        with torch.set_grad_enabled(phase == 'train'):
+            for i, (inp, cls_target, cls_group, dom_target) in enumerate(loader):
+                inp, cls_target= inp.cuda().float(), cls_target.cuda().long()
+                cls_outputs = self.nets[num_net](inp)
+                text_diffs = self.get_direction_vectors(inp, cls_target, num_net)
+                im_diffs = cls_outputs - inp
+                # compute directional loss
+                directional_loss = self.directional_loss(im_diffs / im_diffs.norm(dim=-1, keepdim=True), text_diffs).mean()
+                cls_emb_targets = self.target_embeddings[num_net].T if self.cfg.AUGMENTATION.DOM_SPECIFIC_XE else self.class_text_embs
+                cls_logits = self.get_class_logits(cls_outputs, cls_emb_targets)
+                cls_consist = self.class_consistency_loss(cls_logits, cls_target)
+
+                avg_unseen = self.knn(cls_outputs).mean(1)
+                align_loss = self.alignment_loss(cls_outputs, avg_unseen)
+                loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist + self.beta * align_loss
+                loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist
+                train_class_loss += (1 - self.alpha) * cls_consist.item()
+                train_directional_loss += self.alpha * directional_loss.item()
+                train_align_loss += self.beta * align_loss.item()
+
+                if phase == 'train':
+                    self.optimizer.zero_grad()
+                    loss.backward(retain_graph=True)
+                    self.optimizer.step()
+                
+                train_loss += loss.item()
+
+                total += cls_target.size(0)
+                progress_bar(i, len(loader), 'Loss: %.3f'% (train_loss/(i+1)))
+
+        metrics = {f"{phase} class loss": train_class_loss/(i+1), f"{phase} directional loss": train_directional_loss/(i+1), f"{phase} align loss": train_align_loss/(i+1), f"{phase} loss": train_loss/(i+1), "epoch": epoch}
+        wandb.log(metrics)
+        return metrics
+
+    # TODO: check correctness
+    def knn(self, logits: torch.Tensor):
+        # calculate the k-NN of logits in unseen domain features
+        dist = ((logits[:, None, :]-self.unseen_features)**2).sum(-1)
+        _, idx = torch.topk(dist, self.k, largest=False)
+        idx = idx[:,:,None].expand(idx.shape[0],idx.shape[1],logits.shape[-1])
+        knn_unseen = self.unseen_features.expand(logits.shape[0], self.unseen_features.shape[1], self.unseen_features.shape[2]).gather(1, idx)
+        wandb.summary["knn unseen"] = [[logits[5]], [k for k in knn_unseen[5]], [k for k in self.unseen_features[0]]]
+        return knn_unseen
+
+    def augment_single(self, img_embedding, label): 
+        """ Augments a single image embedding."""
+        keep = img_embedding
+        if self.cfg.AUGMENTATION.INCLUDE_ORIG_TRAINING:
+            output = [keep]
+        else:
+            output = []
+        img_embedding = torch.tensor(img_embedding)
+        img_embedding = img_embedding.type(torch.float32)
+        img_embedding = img_embedding.cuda()
+        img_embedding /= img_embedding.norm(dim=-1, keepdim=True) 
+        for net in self.nets: 
+            o = net(img_embedding)
+            o /= o.norm(dim=-1, keepdim=True) 
+            
+            o = o.detach().cpu().numpy()
+            output.append(o)
+        return list(np.array(output))
+
+    def save_checkpoint(self, acc, epoch, num_net):
+        checkpoint_dir = os.path.join("./checkpoint", self.cfg.DATA.DATASET)
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+        path = f'./checkpoint/{self.cfg.DATA.DATASET}/{self.prompts[num_net]}-{self.cfg.EXP.SEED}-{self.uid}.pth'
+        print(f'Saving checkpoint with acc {acc} to {path}...')
+        state = {
+            "acc": acc,
+            "epoch": epoch,
+            "net": self.nets[num_net].state_dict()
+        }
+        torch.save(state, path)
+        # wandb.save(path)
+        return path
+
+    def load_checkpoint(self, net, path):
+        checkpoint = torch.load(path)
+        net.load_state_dict(checkpoint['net'])
+        print(f"...loaded checkpoint with acc {checkpoint['acc']}")
+        return net
+
+
 class LADSBias(LADS):
     """
     LADS for biased datasets. Right now this only works for two domains. Instead of specifying a source
