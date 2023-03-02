@@ -72,6 +72,7 @@ if args.DATA.LOAD_CACHED:
         model_name = args.EXP.CLIP_MODEL
     else:
         model_name = args.EXP.IMAGE_FEATURES
+    # LUO: select "extracted feature file", "class name list", "domains (prompts)"
     cache_file, dataset_classes, dataset_domains = dh.get_cache_file(DATASET_NAME, model_name, args.EXP.BIASED_VAL, args.EXP.IMAGE_FEATURES)
     assert os.path.exists(cache_file), f"{cache_file} does not exist. To compute embeddings, set DATA.LOAD_CACHED=False"
     data = torch.load(cache_file)
@@ -142,6 +143,7 @@ old_test_features, old_test_labels, old_test_groups, old_test_domains, old_test_
 
 print("SIZE of embeddings ", old_train_features.shape)
 # set zeroshot weights if doing a ensamble
+# TODO: LUO: Ensamble is "testing on both valid and test set".
 if args.EXP.ENSAMBLE:
     all_prompts = neutral_prompts + prompts
     print("Setting zeroshot weights...")
@@ -153,6 +155,7 @@ if args.EXP.ENSAMBLE:
 # if we want to do any augmentations, do them here
 num_augmentations = 1
 print("SIZE of embeddings ", train_features.shape, train_domains.shape)
+# LUO: training f_aug
 if args.EXP.AUGMENTATION != None and args.EXP.AUGMENTATION != 'None':
     print("Augmenting training set...")
     if "LADS" in args.EXP.AUGMENTATION or 'Directional' in args.EXP.AUGMENTATION:

@@ -6,7 +6,7 @@ import random
 import torch.nn.functional as nnf
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from transformers import AdamW
+from torch.optim import AdamW
 import torchvision
 # from helpers.clip_transformations import EmbeddingDataset
 import wandb
@@ -629,6 +629,7 @@ class LADS(Augment):
         self.nets[num_net].train()
         
         best_train_loss, best_epoch = 10000, 0
+        # LUO: training the f_aug
         for epoch in range(self.cfg.AUGMENTATION.EPOCHS):
             train_metrics = self.training_loop(self.train_loader, num_net, epoch, phase='train')
             val_metrics = self.training_loop(self.val_loader, num_net, epoch, phase='val')
