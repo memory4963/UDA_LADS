@@ -87,7 +87,7 @@ if args.DATA.LOAD_CACHED:
     # move some val data to test 
     if args.DATA.DATASET != 'ColoredMNISTBinary':
         val_features, val_labels, val_groups, val_domains, val_filenames = data['val_features'][::2], data['val_labels'][::2], data['val_groups'][::2], data['val_domains'][::2], data['val_filenames'][::2]
-        test_features, test_labels, test_groups, test_domains, test_filenames = np.concatenate((data['test_features'], data['val_features'][1::2])), np.concatenate((data['test_labels'], data['val_labels'][1::2])), np.concatenate((data['test_groups'], data['val_groups'][1::2])), np.concatenate((data['test_domains'], data['val_domains'][1::2])), np.concatenate((data['test_filenames'], data['val_filenames'][1::2]))
+        test_features, test_labels, test_groups, test_domains, test_filenames = np.concatenate((data['test_features'][:args.DATA.TEST_DATA], data['val_features'][1::2])), np.concatenate((data['test_labels'][:args.DATA.TEST_DATA], data['val_labels'][1::2])), np.concatenate((data['test_groups'][:args.DATA.TEST_DATA], data['val_groups'][1::2])), np.concatenate((data['test_domains'][:args.DATA.TEST_DATA], data['val_domains'][1::2])), np.concatenate((data['test_filenames'][:args.DATA.TEST_DATA], data['val_filenames'][1::2]))
     print('Val + Test data: ', test_features.shape)
     if args.METHOD.NORMALIZE:
         train_features /= np.linalg.norm(train_features, axis=-1, keepdims=True)
