@@ -848,7 +848,6 @@ class UDA_LADS(Augment):
                 avg_unseen = self.knn(cls_outputs).mean(1)
                 align_loss = self.alignment_loss(cls_outputs, avg_unseen)
                 loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist + self.beta * align_loss
-                loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist
                 train_class_loss += (1 - self.alpha) * cls_consist.item()
                 train_directional_loss += self.alpha * directional_loss.item()
                 train_align_loss += self.beta * align_loss.item()
@@ -874,7 +873,7 @@ class UDA_LADS(Augment):
         _, idx = torch.topk(dist, self.k, largest=False)
         idx = idx[:,:,None].expand(idx.shape[0],idx.shape[1],logits.shape[-1])
         knn_unseen = self.unseen_features.expand(logits.shape[0], self.unseen_features.shape[1], self.unseen_features.shape[2]).gather(1, idx)
-        wandb.summary["knn unseen"] = [[logits[5]], [k for k in knn_unseen[5]], [k for k in self.unseen_features[0]]]
+        # wandb.log({'knn': wandb.Table(data=torch.cat([logits[5][None,:], knn_unseen[5], self.unseen_features[0]]).tolist)})
         return knn_unseen
 
     def augment_single(self, img_embedding, label): 
