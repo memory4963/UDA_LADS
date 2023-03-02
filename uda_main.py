@@ -78,16 +78,22 @@ if args.DATA.LOAD_CACHED:
     data = torch.load(cache_file)
     train_features, train_labels, train_groups, train_domains, train_filenames = data['train_features'], data['train_labels'], data['train_groups'], data['train_domains'], data['train_filenames']
     val_features, val_labels, val_groups, val_domains, val_filenames = data['val_features'], data['val_labels'], data['val_groups'], data['val_domains'], data['val_filenames']
-    test_features, test_labels, test_groups, test_domains, test_filenames = data['test_features'][:args.DATA.TEST_DATA], data['test_labels'][:args.DATA.TEST_DATA], data['test_groups'][:args.DATA.TEST_DATA], data['test_domains'][:args.DATA.TEST_DATA], data['test_filenames'][:args.DATA.TEST_DATA]
+
+    # LUO: randomly select test data as unseen data
+    perm = torch.randperm(len(data['test_features']))
+    test_idx = perm[:args.DATA.TEST_DATA]
+    unlabeled_idx = perm[args.DATA.TEST_DATA:args.DATA.TEST_DATA+args.DATA.UNLABELED_DATA]
+
+    test_features, test_labels, test_groups, test_domains, test_filenames = data['test_features'][test_idx], data['test_labels'][test_idx], data['test_groups'][test_idx], data['test_domains'][test_idx], data['test_filenames'][test_idx]
     print('Raw test data: ', test_features.shape)
     if args.DATA.UNLABELED_DATA != 0:
-        unlabeled_features = data['test_features'][args.DATA.TEST_DATA:args.DATA.TEST_DATA+args.DATA.UNLABELED_DATA]
+        unlabeled_features = data['test_features'][unlabeled_idx]
         print('Unlabeled training data: ', unlabeled_features.shape)
 
     # move some val data to test 
     if args.DATA.DATASET != 'ColoredMNISTBinary':
         val_features, val_labels, val_groups, val_domains, val_filenames = data['val_features'][::2], data['val_labels'][::2], data['val_groups'][::2], data['val_domains'][::2], data['val_filenames'][::2]
-        test_features, test_labels, test_groups, test_domains, test_filenames = np.concatenate((data['test_features'][:args.DATA.TEST_DATA], data['val_features'][1::2])), np.concatenate((data['test_labels'][:args.DATA.TEST_DATA], data['val_labels'][1::2])), np.concatenate((data['test_groups'][:args.DATA.TEST_DATA], data['val_groups'][1::2])), np.concatenate((data['test_domains'][:args.DATA.TEST_DATA], data['val_domains'][1::2])), np.concatenate((data['test_filenames'][:args.DATA.TEST_DATA], data['val_filenames'][1::2]))
+        test_features, test_labels, test_groups, test_domains, test_filenames = np.concatenate((data['test_features'][test_idx], data['val_features'][1::2])), np.concatenate((data['test_labels'][test_idx], data['val_labels'][1::2])), np.concatenate((data['test_groups'][test_idx], data['val_groups'][1::2])), np.concatenate((data['test_domains'][test_idx], data['val_domains'][1::2])), np.concatenate((data['test_filenames'][test_idx], data['val_filenames'][1::2]))
     print('Val + Test data: ', test_features.shape)
     if args.METHOD.NORMALIZE:
         train_features /= np.linalg.norm(train_features, axis=-1, keepdims=True)

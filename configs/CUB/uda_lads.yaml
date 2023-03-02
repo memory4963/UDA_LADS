@@ -14,7 +14,7 @@ DATA:
   DATASET: "CUB"
   LOAD_CACHED: True
   BATCH_SIZE: 256
-  TEST_DATA: 2047 # test[:TEST_DATA]
+  TEST_DATA: 2947 # test[:TEST_DATA]
   UNLABELED_DATA: 100 # test[TEST_DATA:TEST_DATA+UNLABELED_DATA], used for unsupervised domain adaptation
   KNN_NUM: 10 # use 10 UNDABLED_DATA to generate avg vector
 
