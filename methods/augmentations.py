@@ -16,6 +16,7 @@ from scipy.spatial import distance
 import clip
 from sklearn.metrics import confusion_matrix
 from sklearn.decomposition import PCA
+from sklearn.neighbors import NearestNeighbors
 from scipy import stats
 import uuid
 import os 
@@ -769,6 +770,7 @@ class UDA_LADS(Augment):
         self.unseen_features = torch.from_numpy(unseen_features[None, :]).to(self.device)
         self.k = cfg.DATA.KNN_NUM
         self.beta = cfg.AUGMENTATION.BETA
+        self.knbrs = NearestNeighbors(n_neighbors=self.k).fit(unseen_features)
         
         self.class_text_embs = text_embs.float().cuda()
         self.run() # train augmentation networks
@@ -867,11 +869,12 @@ class UDA_LADS(Augment):
         wandb.log(metrics)
         return metrics
 
-    # TODO: check correctness
     def knn(self, logits: torch.Tensor):
-        # calculate the k-NN of logits in unseen domain features
-        dist = ((logits[:, None, :]-self.unseen_features)**2).sum(-1)
-        _, idx = torch.topk(dist, self.k, largest=False)
+        '''
+        calculate the k-NN of logits in unseen domain features
+        '''
+        _, idx = self.knbrs.kneighbors(logits.detach().cpu())
+        idx = torch.from_numpy(idx).to(self.device)
         idx = idx[:,:,None].expand(idx.shape[0],idx.shape[1],logits.shape[-1])
         knn_unseen = self.unseen_features.expand(logits.shape[0], self.unseen_features.shape[1], self.unseen_features.shape[2]).gather(1, idx)
         # wandb.log({'knn': wandb.Table(data=torch.cat([logits[5][None,:], knn_unseen[5], self.unseen_features[0]]).tolist)})
