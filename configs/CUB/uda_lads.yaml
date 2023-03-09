@@ -37,3 +37,4 @@ AUGMENTATION:
   DOM_LABELS: ['painting']
   EPOCHS: 50
   BETA: 1.
+  UDA_MODE: 'kmm'

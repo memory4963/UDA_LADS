@@ -768,6 +768,9 @@ class UDA_LADS(Augment):
 
         unseen_features = unseen_features.astype(np.float32)
         self.unseen_features = torch.from_numpy(unseen_features[None, :]).to(self.device)
+        self.uda_mode = cfg.AUGMENTATION.UDA_MODE
+        if self.uda_mode == 'avg':
+            self.unseen_avg = self.unseen_features[0].mean(0).expand(256, self.unseen_features.shape[2])
         self.k = cfg.DATA.KNN_NUM
         self.beta = cfg.AUGMENTATION.BETA
         self.knbrs = NearestNeighbors(n_neighbors=self.k).fit(unseen_features)
@@ -848,9 +851,27 @@ class UDA_LADS(Augment):
                 cls_logits = self.get_class_logits(cls_outputs, cls_emb_targets)
                 cls_consist = self.class_consistency_loss(cls_logits, cls_target)
 
-                avg_unseen = self.knn(cls_outputs).mean(1)
+                # k-NN
+                if self.uda_mode == 'knn':
+                    avg_unseen = self.knn(cls_outputs).mean(1)
+                elif self.uda_mode == 'avg':
+                    avg_unseen = self.unseen_avg[:cls_logits.shape[0]]
+                elif self.uda_mode == 'rand':
+                    avg_unseen = torch.zeros_like(inp)
+                    for j in range(inp.shape[0]):
+                        idxs = torch.randperm(self.unseen_features.shape[1])[:self.k]
+                        avg_unseen[j] = self.unseen_features[0, idxs].mean(0)
+                elif self.uda_mode == 'kmm':
+                    pass
+                else:
+                    raise 'Unsupported uda_mode: ' + self.uda_mode
+
+                # alignment loss between train-domain image and unseen-domain image
                 align_loss = self.alignment_loss(cls_outputs, avg_unseen)
-                loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist + self.beta * align_loss
+                if self.uda_mode != 'kmm' and epoch < 20:
+                    loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist
+                else:
+                    loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist + self.beta * align_loss
                 train_class_loss += (1 - self.alpha) * cls_consist.item()
                 train_directional_loss += self.alpha * directional_loss.item()
                 train_align_loss += self.beta * align_loss.item()
@@ -863,7 +884,7 @@ class UDA_LADS(Augment):
                 train_loss += loss.item()
 
                 total += cls_target.size(0)
-                progress_bar(i, len(loader), 'Loss: %.3f'% (train_loss/(i+1)))
+                progress_bar(i, len(loader), 'Loss: %.3f | Epoch: %d'% (train_loss/(i+1), epoch))
 
         metrics = {f"{phase} class loss": train_class_loss/(i+1), f"{phase} directional loss": train_directional_loss/(i+1), f"{phase} align loss": train_align_loss/(i+1), f"{phase} loss": train_loss/(i+1), "epoch": epoch}
         wandb.log(metrics)
