@@ -230,8 +230,8 @@ class ClipMLP(Base):
                 cls_pred = np.append(cls_pred, cls_predicted.cpu().numpy())
                 cls_groups = np.append(cls_groups, cls_group.cpu().numpy())
                 dom_true = np.append(dom_true, dom_target.cpu().numpy())
-                progress_bar(i, len(loader), 'Loss: %.3f | Acc: %.3f (%d/%d)'
-                            % (total/(i+1), 100.*cls_correct/total, cls_correct, total))
+                progress_bar(i, len(loader), 'Epoch: %d | Loss: %.3f | Acc: %.3f (%d/%d)'
+                            % (epoch, total/(i+1), 100.*cls_correct/total, cls_correct, total))
         
         accuracy, balanced_acc, class_accuracy, group_accuracy =  evaluate(cls_pred, cls_true, cls_groups)
 
