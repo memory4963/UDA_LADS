@@ -858,8 +858,12 @@ class UDA_LADS(Augment):
                         beta = torch.ones(inp.shape[0]).to(self.device)
                     else:
                         # calculate beta
-                        k_wid = get_kernel_width(inp).cpu().item()
-                        beta = kmm(inp, self.unseen_features, k_wid)
+                        if self.uda_mode == 'diw':
+                            k_wid = get_kernel_width(cls_logits).cpu().item()
+                            beta = kmm(cls_outputs.detach().cpu().numpy().astype(np.double), self.unseen_features.cpu().numpy().astype(np.double), k_wid)
+                        else:
+                            k_wid = get_kernel_width(inp).cpu().item()
+                            beta = kmm(inp.cpu().numpy().astype(np.double), self.unseen_features.cpu().numpy().astype(np.double), k_wid)
                         beta = torch.Tensor(beta).to(self.device)
 
                     # reweight training data
