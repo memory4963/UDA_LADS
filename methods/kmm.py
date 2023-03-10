@@ -2,13 +2,15 @@ import math
 import sklearn.metrics.pairwise as sk
 from cvxopt import matrix, solvers
 import numpy as np
+import torch
+import torch.nn.functional as F
 
 
 # compute weights using Kernel Mean Matching.
 # returns a list of weights for training data.
 def kmm(x_train, x_test, sigma):
-    x_train = x_train.astype(np.double)
-    x_test = x_test.astype(np.double)
+    x_train = x_train.cpu().numpy().astype(np.double)
+    x_test = x_test.cpu().numpy().astype(np.double)
     n_tr = len(x_train)
     n_te = len(x_test)
 
@@ -43,8 +45,9 @@ def kmm(x_train, x_test, sigma):
 
 # compute the kernel width
 def get_kernel_width(data):
-    dist = []
-    for i in range(len(data)):
-        for j in range(i + 1, len(data)):
-            dist.append(np.sqrt(np.sum((np.array(data[i]) - np.array(data[j])) ** 2)))
-    return np.quantile(np.array(dist), 0.01)
+    return torch.quantile(F.pdist(data, p=2), 0.01)
+    # dist = []
+    # for i in range(len(data)):
+    #     for j in range(i + 1, len(data)):
+    #         dist.append(np.sqrt(np.sum((np.array(data[i]) - np.array(data[j])) ** 2)))
+    # return np.quantile(np.array(dist), 0.01)

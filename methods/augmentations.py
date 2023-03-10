@@ -27,6 +27,7 @@ except:
 
 import helpers.data_helpers as dh
 from methods.clip_transformations import EmbeddingDataset
+from methods.kmm import kmm, get_kernel_width
 from clip_utils import *
 from methods import predictors
 
@@ -767,12 +768,12 @@ class UDA_LADS(Augment):
             text_embs = zeroshot_classifier([[f"a photo of a {c}"] for c in self.class_names], self.model, model_type=self.cfg.EXP.IMAGE_FEATURES)
 
         unseen_features = unseen_features.astype(np.float32)
-        self.unseen_features = torch.from_numpy(unseen_features[None, :]).to(self.device)
+        self.unseen_features = torch.from_numpy(unseen_features).to(self.device)
         self.uda_mode = cfg.AUGMENTATION.UDA_MODE
         if self.uda_mode == 'avg':
-            self.unseen_avg = self.unseen_features[0].mean(0).expand(256, self.unseen_features.shape[2])
+            self.unseen_avg = self.unseen_features.mean(0).expand(256, self.unseen_features.shape[1])
         self.k = cfg.DATA.KNN_NUM
-        self.beta = cfg.AUGMENTATION.BETA
+        self.align_alpha = cfg.AUGMENTATION.ALIGN_ALPHA
         self.knbrs = NearestNeighbors(n_neighbors=self.k).fit(unseen_features)
         
         self.class_text_embs = text_embs.float().cuda()
@@ -795,9 +796,9 @@ class UDA_LADS(Augment):
 
         self.optimizer = AdamW(self.nets[num_net].parameters(), lr=self.cfg.AUGMENTATION.MODEL.LR, weight_decay=self.cfg.AUGMENTATION.MODEL.WEIGHT_DECAY)
         self.directional_loss = DirectionLoss(self.cfg.AUGMENTATION.LOSS_TYPE)
-        self.class_consistency_loss = nn.CrossEntropyLoss(weight=self.dataset.class_weights.cuda())
+        self.class_consistency_loss = nn.CrossEntropyLoss(weight=self.dataset.class_weights.cuda(), reduction='none')
         # self.alignment_loss = DirectionLoss('mse')
-        self.alignment_loss = nn.MSELoss()
+        self.alignment_loss = nn.MSELoss(reduction='none')
 
         self.nets[num_net].train()
         
@@ -846,35 +847,46 @@ class UDA_LADS(Augment):
                 text_diffs = self.get_direction_vectors(inp, cls_target, num_net)
                 im_diffs = cls_outputs - inp
                 # compute directional loss
-                directional_loss = self.directional_loss(im_diffs / im_diffs.norm(dim=-1, keepdim=True), text_diffs).mean()
+                directional_loss = self.directional_loss(im_diffs / im_diffs.norm(dim=-1, keepdim=True), text_diffs)
                 cls_emb_targets = self.target_embeddings[num_net].T if self.cfg.AUGMENTATION.DOM_SPECIFIC_XE else self.class_text_embs
                 cls_logits = self.get_class_logits(cls_outputs, cls_emb_targets)
                 cls_consist = self.class_consistency_loss(cls_logits, cls_target)
 
-                # k-NN
-                if self.uda_mode == 'knn':
-                    avg_unseen = self.knn(cls_outputs).mean(1)
-                elif self.uda_mode == 'avg':
-                    avg_unseen = self.unseen_avg[:cls_logits.shape[0]]
-                elif self.uda_mode == 'rand':
-                    avg_unseen = torch.zeros_like(inp)
-                    for j in range(inp.shape[0]):
-                        idxs = torch.randperm(self.unseen_features.shape[1])[:self.k]
-                        avg_unseen[j] = self.unseen_features[0, idxs].mean(0)
-                elif self.uda_mode == 'kmm':
-                    pass
-                else:
-                    raise 'Unsupported uda_mode: ' + self.uda_mode
+                # Unsupervised Domain Adaptation
+                if self.uda_mode == 'kmm':
+                    if epoch < 1:
+                        beta = torch.ones(inp.shape[0]).to(self.device)
+                    else:
+                        # calculate beta
+                        k_wid = get_kernel_width(inp).cpu().item()
+                        beta = kmm(inp, self.unseen_features, k_wid)
+                        beta = torch.Tensor(beta).to(self.device)
 
-                # alignment loss between train-domain image and unseen-domain image
-                align_loss = self.alignment_loss(cls_outputs, avg_unseen)
-                if self.uda_mode != 'kmm' and epoch < 20:
-                    loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist
+                    # reweight training data
+                    loss = self.alpha * (beta * directional_loss).mean() + (1 - self.alpha) * (beta * cls_consist).mean()
+                    align_loss = torch.zeros([1]) # just a placeholder
                 else:
-                    loss = self.alpha * directional_loss + (1 - self.alpha) * cls_consist + self.beta * align_loss
-                train_class_loss += (1 - self.alpha) * cls_consist.item()
-                train_directional_loss += self.alpha * directional_loss.item()
-                train_align_loss += self.beta * align_loss.item()
+                    if self.uda_mode == 'knn':
+                        avg_unseen = self.knn(cls_outputs).mean(1)
+                    elif self.uda_mode == 'avg':
+                        avg_unseen = self.unseen_avg[:cls_logits.shape[0]]
+                    elif self.uda_mode == 'rand':
+                        avg_unseen = torch.zeros_like(inp)
+                        for j in range(inp.shape[0]):
+                            idxs = torch.randperm(self.unseen_features.shape[0])[:self.k]
+                            avg_unseen[j] = self.unseen_features[idxs].mean(0)
+                    else:
+                        raise 'Unsupported uda_mode: ' + self.uda_mode
+
+                    # alignment loss between train-domain image and unseen-domain image
+                    align_loss = self.alignment_loss(cls_outputs, avg_unseen)
+                    if epoch < 20:
+                        loss = self.alpha * directional_loss.mean() + (1 - self.alpha) * cls_consist.mean()
+                    else:
+                        loss = self.alpha * directional_loss.mean() + (1 - self.alpha) * cls_consist.mean() + self.align_alpha * align_loss.mean()
+                train_class_loss += (1 - self.alpha) * cls_consist.mean().item()
+                train_directional_loss += self.alpha * directional_loss.mean().item()
+                train_align_loss += self.align_alpha * align_loss.mean().item()
 
                 if phase == 'train':
                     self.optimizer.zero_grad()
@@ -897,7 +909,7 @@ class UDA_LADS(Augment):
         _, idx = self.knbrs.kneighbors(logits.detach().cpu())
         idx = torch.from_numpy(idx).to(self.device)
         idx = idx[:,:,None].expand(idx.shape[0],idx.shape[1],logits.shape[-1])
-        knn_unseen = self.unseen_features.expand(logits.shape[0], self.unseen_features.shape[1], self.unseen_features.shape[2]).gather(1, idx)
+        knn_unseen = self.unseen_features[None, :].expand(logits.shape[0], self.unseen_features.shape[0], self.unseen_features.shape[1]).gather(1, idx)
         # wandb.log({'knn': wandb.Table(data=torch.cat([logits[5][None,:], knn_unseen[5], self.unseen_features[0]]).tolist)})
         return knn_unseen
 
