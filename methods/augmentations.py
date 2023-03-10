@@ -853,7 +853,7 @@ class UDA_LADS(Augment):
                 cls_consist = self.class_consistency_loss(cls_logits, cls_target)
 
                 # Unsupervised Domain Adaptation
-                if self.uda_mode == 'kmm':
+                if 'iw' in self.uda_mode:
                     if epoch < 1:
                         beta = torch.ones(inp.shape[0]).to(self.device)
                     else:
