@@ -37,4 +37,4 @@ AUGMENTATION:
   DOM_LABELS: ['painting']
   EPOCHS: 50
   ALIGN_ALPHA: 1.
-  UDA_MODE: 'diw'
+  UDA_MODE: 'iw'

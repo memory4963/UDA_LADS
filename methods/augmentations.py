@@ -770,8 +770,8 @@ class UDA_LADS(Augment):
         unseen_features = unseen_features.astype(np.float32)
         self.unseen_features = torch.from_numpy(unseen_features).to(self.device)
         self.uda_mode = cfg.AUGMENTATION.UDA_MODE
-        if self.uda_mode == 'avg':
-            self.unseen_avg = self.unseen_features.mean(0).expand(256, self.unseen_features.shape[1])
+        # if self.uda_mode == 'avg':
+        self.unseen_avg = self.unseen_features.mean(0).expand(256, self.unseen_features.shape[1])
         self.k = cfg.DATA.KNN_NUM
         self.align_alpha = cfg.AUGMENTATION.ALIGN_ALPHA
         self.knbrs = NearestNeighbors(n_neighbors=self.k).fit(unseen_features)
@@ -853,12 +853,14 @@ class UDA_LADS(Augment):
                 cls_consist = self.class_consistency_loss(cls_logits, cls_target)
 
                 # Unsupervised Domain Adaptation
-                if 'iw' in self.uda_mode:
-                    if epoch < 1:
+                if 'fiw' in self.uda_mode:
+                    avg_unseen = self.unseen_avg[:cls_logits.shape[0]]
+                    align_loss = self.alignment_loss(cls_outputs, avg_unseen)
+                    if epoch < 20:
                         beta = torch.ones(inp.shape[0]).to(self.device)
                     else:
                         # calculate beta
-                        if self.uda_mode == 'diw':
+                        if self.uda_mode == 'dfiw':
                             k_wid = get_kernel_width(cls_logits).cpu().item()
                             beta = kmm(cls_outputs.detach().cpu().numpy().astype(np.double), self.unseen_features.cpu().numpy().astype(np.double), k_wid)
                         else:
@@ -867,8 +869,7 @@ class UDA_LADS(Augment):
                         beta = torch.Tensor(beta).to(self.device)
 
                     # reweight training data
-                    loss = self.alpha * (beta * directional_loss).mean() + (1 - self.alpha) * (beta * cls_consist).mean()
-                    align_loss = torch.zeros([1]) # just a placeholder
+                    loss = self.alpha * (beta * directional_loss).mean() + (1 - self.alpha) * (beta * cls_consist).mean() + self.align_alpha * (beta * align_loss.mean(dim=1)).mean()
                 else:
                     if self.uda_mode == 'knn':
                         avg_unseen = self.knn(cls_outputs).mean(1)
